@@ -1,3 +1,5 @@
+#include "config.h"
+
 #include <epoxy/gl.h>
 #include <SDL.h>
 #include <stdlib.h>

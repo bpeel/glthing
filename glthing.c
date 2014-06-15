@@ -1,4 +1,4 @@
-#include <GL/glew.h>
+#include <epoxy/gl.h>
 #include <SDL.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -118,16 +118,9 @@ main(int argc, char **argv)
 
         SDL_GL_MakeCurrent(glthing.window, glthing.gl_context);
 
-        if (glewInit() != GLEW_OK) {
-                fprintf(stderr, "glewInit failed\n");
-                ret = EXIT_FAILURE;
-                goto out_context;
-        }
-
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;
 
-out_context:
         SDL_GL_MakeCurrent(NULL, NULL);
         SDL_GL_DeleteContext(glthing.gl_context);
 out_window:

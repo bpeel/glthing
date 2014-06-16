@@ -220,7 +220,7 @@ create_triangle(void)
         glGenVertexArrays(1, &triangle->vertex_array);
         glBindVertexArray(triangle->vertex_array);
 
-        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(ATTRIB_POS);
         glVertexAttribPointer(ATTRIB_POS,
                               2, /* size */
                               GL_FLOAT,

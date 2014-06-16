@@ -23,9 +23,6 @@ redraw(struct glthing *glthing)
 {
         int w, h;
 
-        glClearColor(0.0, 0.0, 0.0, 0.0);
-        glClear(GL_COLOR_BUFFER_BIT);
-
         gol_update(glthing->gol);
 
         SDL_GetWindowSize(glthing->window, &w, &h);

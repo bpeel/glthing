@@ -11,6 +11,7 @@ AM_CPPFLAGS = \
 
 glthing_SOURCES = \
 	main.c \
+	shader-data.c \
 	$(NULL)
 
 glthing_LDADD = \

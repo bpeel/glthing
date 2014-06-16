@@ -7,97 +7,31 @@
 #include <stdio.h>
 
 #include "shader-data.h"
+#include "gol.h"
 
 struct glthing {
         SDL_Window *window;
         SDL_GLContext gl_context;
-        struct triangle *triangle;
-        GLuint program;
+
+        struct gol *gol;
 
         bool quit;
 };
 
-struct vertex {
-        float x, y;
-};
-
-struct triangle {
-        GLuint vertex_array;
-        GLuint buffer;
-};
-
-#define ATTRIB_POS 0
-
-static GLuint
-create_program(void)
-{
-        return shader_data_load_program(GL_VERTEX_SHADER,
-                                        "vertex-shader.glsl",
-                                        GL_FRAGMENT_SHADER,
-                                        "fragment-shader.glsl",
-                                        GL_NONE);
-}
-
-static struct triangle *
-create_triangle(void)
-{
-        static const struct vertex triangle_data[3] = {
-                { -0.5f, -0.5f },
-                { 0.5f, -0.5f },
-                { 0.0f, 0.5f }
-        };
-        struct triangle *triangle;
-
-        triangle = malloc(sizeof *triangle);
-
-        glGenBuffers(1, &triangle->buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, triangle->buffer);
-        glBufferData(GL_ARRAY_BUFFER,
-                     sizeof triangle_data,
-                     triangle_data,
-                     GL_STATIC_DRAW);
-
-        glGenVertexArrays(1, &triangle->vertex_array);
-        glBindVertexArray(triangle->vertex_array);
-
-        glEnableVertexAttribArray(ATTRIB_POS);
-        glVertexAttribPointer(ATTRIB_POS,
-                              2, /* size */
-                              GL_FLOAT,
-                              GL_FALSE, /* normalized */
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, x));
-
-        glBindVertexArray(0);
-
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        return triangle;
-}
-
-static void
-free_triangle(struct triangle *triangle)
-{
-        glDeleteVertexArrays(1, &triangle->vertex_array);
-        glDeleteBuffers(1, &triangle->buffer);
-        free(triangle);
-}
-
 static void
 redraw(struct glthing *glthing)
 {
+        int w, h;
+
         glClearColor(0.0, 0.0, 0.0, 0.0);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        glUseProgram(glthing->program);
+        gol_update(glthing->gol);
 
-        glBindVertexArray(glthing->triangle->vertex_array);
+        SDL_GetWindowSize(glthing->window, &w, &h);
+        glViewport(0.0f, 0.0f, w, h);
 
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 3);
-
-        glBindVertexArray(0);
-
-        glUseProgram(0);
+        gol_paint(glthing->gol);
 
         SDL_GL_SwapWindow(glthing->window);
 }
@@ -107,10 +41,6 @@ process_window_event(struct glthing *glthing,
                      const SDL_WindowEvent *event)
 {
         switch (event->event) {
-        case SDL_WINDOWEVENT_EXPOSED:
-                redraw(glthing);
-                break;
-
         case SDL_WINDOWEVENT_CLOSE:
                 glthing->quit = true;
                 break;
@@ -136,16 +66,12 @@ static bool
 main_loop(struct glthing *glthing)
 {
         SDL_Event event;
-        int res;
 
         while (!glthing->quit) {
-                res = SDL_WaitEvent(&event);
-                if (res < 0) {
-                        fprintf(stderr, "SDL_WaitEvent: %s\n", SDL_GetError());
-                        return false;
-                }
-
-                process_event(glthing, &event);
+                if (SDL_PollEvent(&event))
+                        process_event(glthing, &event);
+                else
+                        redraw(glthing);
         }
 
         return true;
@@ -201,20 +127,14 @@ main(int argc, char **argv)
 
         SDL_GL_MakeCurrent(glthing.window, glthing.gl_context);
 
-        glthing.program = create_program();
-        if (glthing.program == 0) {
-                ret = EXIT_FAILURE;
+        glthing.gol = gol_new(160, 120);
+        if (glthing.gol == NULL)
                 goto out_context;
-        }
-
-        glthing.triangle = create_triangle();
 
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;
 
-        free_triangle(glthing.triangle);
-
-        glDeleteProgram(glthing.program);
+        gol_free(glthing.gol);
 
 out_context:
         SDL_GL_MakeCurrent(NULL, NULL);

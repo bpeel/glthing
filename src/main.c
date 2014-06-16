@@ -162,8 +162,6 @@ create_program_with_shaders(GLenum shader_type,
 
         va_end(ap);
 
-        glBindAttribLocation(program, ATTRIB_POS, "pos");
-
         glLinkProgram(program);
 
         glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);

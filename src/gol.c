@@ -164,6 +164,8 @@ error_textures:
         glBindTexture(GL_TEXTURE_2D, 0);
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+        glDeleteProgram(gol->paint_program);
+
 error_update_program:
         glDeleteProgram(gol->update_program);
 
@@ -182,6 +184,9 @@ gol_free(struct gol *gol)
                 glDeleteTextures(1, &gol->textures[i].tex);
                 glDeleteFramebuffers(1, &gol->textures[i].fbo);
         }
+
+        glDeleteProgram(gol->paint_program);
+        glDeleteProgram(gol->update_program);
 
         free(gol);
 }

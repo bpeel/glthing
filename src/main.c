@@ -5,73 +5,85 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdio.h>
-
-#include "shader-data.h"
-#include "gol.h"
+#include <assert.h>
 
 struct glthing {
         SDL_Window *window;
         SDL_GLContext gl_context;
-
-        struct gol *gol;
-
-        bool quit;
 };
 
 static void
-redraw(struct glthing *glthing)
+create_texture(GLuint *tex,
+               GLuint *fbo,
+               int width, int height,
+               const GLubyte *data)
 {
-        int w, h;
+        glGenTextures(1, tex);
+        glBindTexture(GL_TEXTURE_2D, *tex);
+        glTexImage2D(GL_TEXTURE_2D,
+                     0, /* level */
+                     GL_RGBA,
+                     width, height,
+                     0, /* border */
+                     GL_RGBA,
+                     GL_UNSIGNED_BYTE,
+                     data);
 
-        gol_update(glthing->gol);
+        glGenFramebuffers(1, fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER,
+                               GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D,
+                               *tex,
+                               0 /* level */);
 
-        SDL_GetWindowSize(glthing->window, &w, &h);
-        glViewport(0.0f, 0.0f, w, h);
-
-        gol_paint(glthing->gol);
-
-        SDL_GL_SwapWindow(glthing->window);
+        assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) ==
+               GL_FRAMEBUFFER_COMPLETE);
 }
 
 static void
-process_window_event(struct glthing *glthing,
-                     const SDL_WindowEvent *event)
+do_blit(void)
 {
-        switch (event->event) {
-        case SDL_WINDOWEVENT_CLOSE:
-                glthing->quit = true;
-                break;
+        GLuint src_tex, dst_tex;
+        GLuint src_fbo, dst_fbo;
+        static const GLubyte src_data[2 * 4] = {
+                0xff, 0x00, 0x00, 0xff,
+                0x00, 0x00, 0xff, 0xff,
+        };
+        GLubyte dst_data[256 * 4];
+        int i, j;
+
+        create_texture(&src_tex, &src_fbo, 2, 1, src_data);
+        create_texture(&dst_tex, &dst_fbo, 256, 1, NULL);
+
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, src_fbo);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst_fbo);
+
+        glBlitFramebuffer(0, 0, /* src x0 y0 */
+                          2, 1, /* src x1 y1 */
+                          0, 0, /* dst x0 y0 */
+                          256, 1, /* dst x0 y0 */
+                          GL_COLOR_BUFFER_BIT,
+                          GL_LINEAR);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        glDeleteFramebuffers(1, &src_fbo);
+        glDeleteFramebuffers(1, &dst_fbo);
+
+        glBindTexture(GL_TEXTURE_2D, dst_tex);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, dst_data);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        glDeleteTextures(1, &src_tex);
+        glDeleteTextures(1, &dst_tex);
+
+        for (i = 0; i < 256; i++) {
+                printf("%02x:  ", i);
+                for (j = 0; j < 4; j++)
+                        printf("%02x", dst_data[i * 4 + j]);
+                fputc('\n', stdout);
         }
-}
-
-static void
-process_event(struct glthing *glthing,
-              const SDL_Event *event)
-{
-        switch (event->type) {
-        case SDL_WINDOWEVENT:
-                process_window_event(glthing, &event->window);
-                break;
-
-        case SDL_QUIT:
-                glthing->quit = true;
-                break;
-        }
-}
-
-static bool
-main_loop(struct glthing *glthing)
-{
-        SDL_Event event;
-
-        while (!glthing->quit) {
-                if (SDL_PollEvent(&event))
-                        process_event(glthing, &event);
-                else
-                        redraw(glthing);
-        }
-
-        return true;
 }
 
 int
@@ -80,8 +92,6 @@ main(int argc, char **argv)
         int ret = EXIT_SUCCESS;
         struct glthing glthing;
         int res;
-
-        memset(&glthing, 0, sizeof glthing);
 
         res = SDL_Init(SDL_INIT_VIDEO);
         if (res < 0) {
@@ -94,10 +104,6 @@ main(int argc, char **argv)
         SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
         SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                            SDL_GL_CONTEXT_PROFILE_CORE);
 
         glthing.window = SDL_CreateWindow("glthing",
                                           SDL_WINDOWPOS_UNDEFINED,
@@ -124,16 +130,8 @@ main(int argc, char **argv)
 
         SDL_GL_MakeCurrent(glthing.window, glthing.gl_context);
 
-        glthing.gol = gol_new(160, 120);
-        if (glthing.gol == NULL)
-                goto out_context;
+        do_blit();
 
-        if (!main_loop(&glthing))
-                ret = EXIT_FAILURE;
-
-        gol_free(glthing.gol);
-
-out_context:
         SDL_GL_MakeCurrent(NULL, NULL);
         SDL_GL_DeleteContext(glthing.gl_context);
 out_window:

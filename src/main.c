@@ -59,12 +59,25 @@ do_blit(void)
         glBindFramebuffer(GL_READ_FRAMEBUFFER, src_fbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst_fbo);
 
-        glBlitFramebuffer(0, 0, /* src x0 y0 */
-                          2, 1, /* src x1 y1 */
-                          0, 0, /* dst x0 y0 */
-                          256, 1, /* dst x0 y0 */
-                          GL_COLOR_BUFFER_BIT,
-                          GL_LINEAR);
+        glViewport(0, 0, 256, 1);
+
+        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_2D, src_tex);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glBegin(GL_TRIANGLE_STRIP);
+        glTexCoord2i(0, 0);
+        glVertex2i(-1, -1);
+        glTexCoord2i(1, 0);
+        glVertex2i(1, -1);
+        glTexCoord2i(0, 1);
+        glVertex2i(-1, 1);
+        glTexCoord2i(1, 1);
+        glVertex2i(1, 1);
+        glEnd();
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 

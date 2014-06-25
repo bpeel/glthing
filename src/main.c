@@ -27,6 +27,10 @@ blit_mode_names[] = {
 };
 
 #define DST_WIDTH 256
+#define DST_HEIGHT 1
+
+#define SRC_WIDTH 2
+#define SRC_HEIGHT 1
 
 #define ARRAY_SIZE(x) (sizeof (x) / sizeof ((x)[0]))
 
@@ -37,8 +41,8 @@ create_texture(GLuint *tex,
                const GLubyte *data)
 {
         glGenTextures(1, tex);
-        glBindTexture(GL_TEXTURE_2D, *tex);
-        glTexImage2D(GL_TEXTURE_2D,
+        glBindTexture(GL_TEXTURE_RECTANGLE, *tex);
+        glTexImage2D(GL_TEXTURE_RECTANGLE,
                      0, /* level */
                      GL_RGBA,
                      width, height,
@@ -47,16 +51,20 @@ create_texture(GLuint *tex,
                      GL_UNSIGNED_BYTE,
                      data);
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_RECTANGLE,
+                        GL_TEXTURE_WRAP_S,
+                        GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_RECTANGLE,
+                        GL_TEXTURE_WRAP_T,
+                        GL_CLAMP_TO_EDGE);
 
         glGenFramebuffers(1, fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
         glFramebufferTexture2D(GL_FRAMEBUFFER,
                                GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_2D,
+                               GL_TEXTURE_RECTANGLE,
                                *tex,
                                0 /* level */);
 
@@ -70,21 +78,21 @@ blit_fixed_function_triangles(GLuint src_tex, GLuint src_fbo,
 {
         glViewport(0, 0, DST_WIDTH, 1);
 
-        glBindTexture(GL_TEXTURE_2D, src_tex);
-        glEnable(GL_TEXTURE_2D);
+        glBindTexture(GL_TEXTURE_RECTANGLE, src_tex);
+        glEnable(GL_TEXTURE_RECTANGLE);
 
         glBegin(GL_TRIANGLE_STRIP);
         glTexCoord2i(0, 0);
         glVertex2i(-1, -1);
-        glTexCoord2i(1, 0);
+        glTexCoord2i(SRC_WIDTH, 0);
         glVertex2i(1, -1);
-        glTexCoord2i(0, 1);
+        glTexCoord2i(0, SRC_HEIGHT);
         glVertex2i(-1, 1);
-        glTexCoord2i(1, 1);
+        glTexCoord2i(SRC_WIDTH, SRC_HEIGHT);
         glVertex2i(1, 1);
         glEnd();
 
-        glDisable(GL_TEXTURE_2D);
+        glDisable(GL_TEXTURE_RECTANGLE);
 }
 
 static GLuint
@@ -199,17 +207,17 @@ blit_glsl_triangles(GLuint src_tex, GLuint src_fbo,
                 "void\n"
                 "main()\n"
                 "{\n"
-                "        coord = pos;\n"
+                "        coord = pos * vec2(2.0, 1.0);\n"
                 "        gl_Position = vec4(pos * 2.0 - 1.0, 0.0, 1.0);\n"
                 "}\n";
         static const char fragment_shader[] =
                 "varying vec2 coord;\n"
-                "uniform sampler2D tex;\n"
+                "uniform sampler2DRect tex;\n"
                 "\n"
                 "void\n"
                 "main()\n"
                 "{\n"
-                "        gl_FragColor = texture2D(tex, coord);\n"
+                "        gl_FragColor = texture2DRect(tex, coord);\n"
                 "}\n";
 
         static const GLfloat verts[] = {
@@ -226,7 +234,7 @@ blit_glsl_triangles(GLuint src_tex, GLuint src_fbo,
         if (prog == 0)
                 return;
 
-        glBindTexture(GL_TEXTURE_2D, src_tex);
+        glBindTexture(GL_TEXTURE_RECTANGLE, src_tex);
 
         glUseProgram(prog);
 
@@ -270,13 +278,13 @@ do_blit(enum blit_mode mode, GLubyte *dst_data)
 {
         GLuint src_tex, dst_tex;
         GLuint src_fbo, dst_fbo;
-        static const GLubyte src_data[2 * 4] = {
+        static const GLubyte src_data[SRC_WIDTH * SRC_HEIGHT * 4] = {
                 0xff, 0x00, 0x00, 0xff,
                 0x00, 0x00, 0xff, 0xff,
         };
 
-        create_texture(&src_tex, &src_fbo, 2, 1, src_data);
-        create_texture(&dst_tex, &dst_fbo, DST_WIDTH, 1, NULL);
+        create_texture(&src_tex, &src_fbo, SRC_WIDTH, SRC_HEIGHT, src_data);
+        create_texture(&dst_tex, &dst_fbo, DST_WIDTH, DST_HEIGHT, NULL);
 
         glBindFramebuffer(GL_READ_FRAMEBUFFER, src_fbo);
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst_fbo);
@@ -301,9 +309,12 @@ do_blit(enum blit_mode mode, GLubyte *dst_data)
         glDeleteFramebuffers(1, &src_fbo);
         glDeleteFramebuffers(1, &dst_fbo);
 
-        glBindTexture(GL_TEXTURE_2D, dst_tex);
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, dst_data);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        glBindTexture(GL_TEXTURE_RECTANGLE, dst_tex);
+        glGetTexImage(GL_TEXTURE_RECTANGLE,
+                      0, /* level */
+                      GL_RGBA, GL_UNSIGNED_BYTE,
+                      dst_data);
+        glBindTexture(GL_TEXTURE_RECTANGLE, 0);
 
         glDeleteTextures(1, &src_tex);
         glDeleteTextures(1, &dst_tex);
@@ -312,7 +323,8 @@ do_blit(enum blit_mode mode, GLubyte *dst_data)
 static void
 do_all_blits(void)
 {
-        GLubyte dst_data[ARRAY_SIZE(blit_mode_names)][DST_WIDTH * 4];
+        GLubyte dst_data
+                [ARRAY_SIZE(blit_mode_names)][DST_WIDTH * DST_HEIGHT * 4];
         int mode;
         int x, c;
 

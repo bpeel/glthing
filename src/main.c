@@ -117,7 +117,10 @@ create_shader(GLenum type, const char *source)
                 glGetShaderInfoLog(shader, length, &actual_length, info_log);
                 if (*info_log) {
                         fprintf(stderr,
-                                "Info log:\n%s\n",
+                                "Info log for %s:\n%s\n",
+                                type == GL_VERTEX_SHADER ? "vertex" :
+                                type == GL_FRAGMENT_SHADER ? "fragment" :
+                                "?",
                                 info_log);
                 }
                 free(info_log);

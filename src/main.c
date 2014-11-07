@@ -80,7 +80,7 @@ create_grid(struct prim *grid)
                         v[3].y = yp + 2.0 / GRID_SIZE;
 
                         for (i = 0; i < 4; i++) {
-                                v[i].z = 0.5f;
+                                v[i].z = 0.0f;
                                 v[i].r = 0;
                                 v[i].g = 0;
                                 v[i].b = 255;
@@ -143,7 +143,7 @@ create_star(struct prim *grid)
         v = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
 
         for (i = 0; i < N_STAR_VERTICES; i++) {
-                v[i].z = 0.0f;
+                v[i].z = 0.5f;
                 v[i].r = 0;
                 v[i].g = 255;
                 v[i].b = 0;
@@ -359,6 +359,7 @@ main(int argc, char **argv)
         create_star(&glthing.star);
 
         glUseProgram(glthing.program);
+        glEnable(GL_DEPTH_TEST);
 
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;

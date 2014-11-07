@@ -11,7 +11,6 @@ AM_CPPFLAGS = \
 
 glthing_SOURCES = \
 	main.c \
-	gol.c \
 	shader-data.c \
 	$(NULL)
 

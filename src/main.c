@@ -22,6 +22,7 @@ struct glthing {
         GLuint offset_location;
         struct prim grid;
         struct prim star;
+        struct prim square;
 
         int last_w, last_h;
 
@@ -38,6 +39,8 @@ struct vertex {
 
 #define STAR_POINTS 5
 #define N_STAR_VERTICES (STAR_POINTS * 2 + 1)
+
+#define STAR_Z 0.5f
 
 static void
 create_grid(struct prim *grid)
@@ -143,7 +146,7 @@ create_star(struct prim *grid)
         v = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
 
         for (i = 0; i < N_STAR_VERTICES; i++) {
-                v[i].z = 0.5f;
+                v[i].z = STAR_Z;
                 v[i].r = 0;
                 v[i].g = 255;
                 v[i].b = 0;
@@ -196,6 +199,58 @@ create_star(struct prim *grid)
 }
 
 static void
+create_square(struct prim *grid)
+{
+        struct vertex *v;
+        int y, x;
+        int i;
+
+        glGenVertexArrays(1, &grid->array);
+        glBindVertexArray(grid->array);
+
+        glGenBuffers(1, &grid->buffer);
+        glBindBuffer(GL_ARRAY_BUFFER, grid->buffer);
+        glBufferData(GL_ARRAY_BUFFER,
+                     4 * sizeof (struct vertex),
+                     NULL, /* data */
+                     GL_STATIC_DRAW);
+
+        v = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+
+        for (i = 0; i < 4; i++) {
+                v[i].z = STAR_Z;
+                v[i].r = 255;
+                v[i].g = 255;
+                v[i].b = 255;
+        }
+
+        for (y = 0; y < 2; y++) {
+                for (x = 0; x < 2; x++) {
+                        v->x = (2 * x - 1.0f) / GRID_SIZE;
+                        v->y = (2 * y - 1.0f) / GRID_SIZE;
+                        v++;
+                }
+        }
+
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3,
+                              GL_FLOAT, GL_FALSE,
+                              sizeof (struct vertex),
+                              (void *) offsetof(struct vertex, x));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3,
+                              GL_UNSIGNED_BYTE, GL_TRUE,
+                              sizeof (struct vertex),
+                              (void *) offsetof(struct vertex, r));
+
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        glBindVertexArray(0);
+}
+
+static void
 destroy_prim(struct prim *grid)
 {
         glDeleteVertexArrays(1, &grid->array);
@@ -203,23 +258,46 @@ destroy_prim(struct prim *grid)
 }
 
 static void
+draw_star(struct glthing *glthing)
+{
+        GLuint q;
+
+        glGenQueries(1, &q);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthMask(GL_FALSE);
+
+        glBindVertexArray(glthing->square.array);
+        glBeginQuery(GL_ANY_SAMPLES_PASSED, q);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glEndQuery(GL_ANY_SAMPLES_PASSED);
+
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthMask(GL_TRUE);
+
+        glBindVertexArray(glthing->star.array);
+        glBeginConditionalRender(q, GL_QUERY_WAIT);
+        glDrawRangeElements(GL_TRIANGLE_FAN,
+                            0, N_STAR_VERTICES - 1,
+                            STAR_POINTS * 2 + 2,
+                            GL_UNSIGNED_SHORT,
+                            (void *) (N_STAR_VERTICES *
+                                      sizeof (struct vertex)));
+        glEndConditionalRender();
+
+        glDeleteQueries(1, &q);
+}
+
+static void
 draw_stars(struct glthing *glthing)
 {
         int y, x;
-
-        glBindVertexArray(glthing->star.array);
 
         for (y = 0; y < GRID_SIZE; y++) {
                 for (x = 0; x < GRID_SIZE; x++) {
                         glUniform2f(glthing->offset_location,
                                     2.0f * (x + 0.5f) / GRID_SIZE - 1.0f,
                                     2.0f * (y + 0.5f) / GRID_SIZE - 1.0f);
-                        glDrawRangeElements(GL_TRIANGLE_FAN,
-                                            0, N_STAR_VERTICES - 1,
-                                            STAR_POINTS * 2 + 2,
-                                            GL_UNSIGNED_SHORT,
-                                            (void *) (N_STAR_VERTICES *
-                                                      sizeof (struct vertex)));
+                        draw_star(glthing);
                 }
         }
 }
@@ -357,6 +435,7 @@ main(int argc, char **argv)
 
         create_grid(&glthing.grid);
         create_star(&glthing.star);
+        create_square(&glthing.square);
 
         glUseProgram(glthing.program);
         glEnable(GL_DEPTH_TEST);
@@ -364,6 +443,7 @@ main(int argc, char **argv)
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;
 
+        destroy_prim(&glthing.square);
         destroy_prim(&glthing.star);
         destroy_prim(&glthing.grid);
 

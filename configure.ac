@@ -32,6 +32,8 @@ AC_ARG_ENABLE(
   enable_maintainer_flags=maintainer_default
 )
 
+AC_CHECK_LIB([m], sinf)
+
 MAINTAINER_COMPILER_FLAGS="-Wall -Wcast-align -Wuninitialized
                            -Wno-strict-aliasing -Wempty-body -Wformat
                            -Wformat-security -Winit-self -Wundef

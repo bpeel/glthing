@@ -18,6 +18,8 @@ struct glthing {
         SDL_Window *window;
         SDL_GLContext gl_context;
 
+        bool use_conditional_render;
+
         GLuint program;
         GLuint offset_location;
         struct prim grid;
@@ -262,29 +264,36 @@ draw_star(struct glthing *glthing)
 {
         GLuint q;
 
-        glGenQueries(1, &q);
-        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-        glDepthMask(GL_FALSE);
+        if (glthing->use_conditional_render) {
+                glGenQueries(1, &q);
+                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+                glDepthMask(GL_FALSE);
 
-        glBindVertexArray(glthing->square.array);
-        glBeginQuery(GL_ANY_SAMPLES_PASSED, q);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glEndQuery(GL_ANY_SAMPLES_PASSED);
+                glBindVertexArray(glthing->square.array);
+                glBeginQuery(GL_ANY_SAMPLES_PASSED, q);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glEndQuery(GL_ANY_SAMPLES_PASSED);
 
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glDepthMask(GL_TRUE);
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+                glDepthMask(GL_TRUE);
+
+                glBeginConditionalRender(q, GL_QUERY_WAIT);
+        }
 
         glBindVertexArray(glthing->star.array);
-        glBeginConditionalRender(q, GL_QUERY_WAIT);
+
         glDrawRangeElements(GL_TRIANGLE_FAN,
                             0, N_STAR_VERTICES - 1,
                             STAR_POINTS * 2 + 2,
                             GL_UNSIGNED_SHORT,
                             (void *) (N_STAR_VERTICES *
                                       sizeof (struct vertex)));
-        glEndConditionalRender();
 
-        glDeleteQueries(1, &q);
+        if (glthing->use_conditional_render) {
+                glEndConditionalRender();
+
+                glDeleteQueries(1, &q);
+        }
 }
 
 static void
@@ -377,9 +386,22 @@ main(int argc, char **argv)
 {
         int ret = EXIT_SUCCESS;
         struct glthing glthing;
+        int i;
         int res;
 
         memset(&glthing, 0, sizeof glthing);
+
+        glthing.use_conditional_render = true;
+
+        for (i = 1; i < argc; i++) {
+                if (!strcmp(argv[i], "nocond")) {
+                        glthing.use_conditional_render = false;
+                } else {
+                        fprintf(stderr, "usage: glthing [nocond]\n");
+                        ret = EXIT_FAILURE;
+                        goto out;
+                }
+        }
 
         res = SDL_Init(SDL_INIT_VIDEO);
         if (res < 0) {

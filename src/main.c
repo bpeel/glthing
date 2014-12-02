@@ -9,7 +9,7 @@
 
 #include "shader-data.h"
 
-#define N_POINTS 100
+#define N_POINTS 1000
 
 struct glthing {
         SDL_Window *window;

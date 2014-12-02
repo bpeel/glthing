@@ -31,7 +31,6 @@ struct color {
 
 struct vertex {
         float x, y;
-        struct color colors[1];
 };
 
 static void
@@ -51,18 +50,15 @@ gen_colors(struct color *colors,
 static GLuint
 create_points_buffer(int n_colors)
 {
-        size_t vertex_size;
         struct vertex *v;
         GLuint buf;
         int i;
 
-        vertex_size = (sizeof (struct vertex) +
-                       sizeof (struct color) * (n_colors - 1));
-
         glGenBuffers(1, &buf);
         glBindBuffer(GL_ARRAY_BUFFER, buf);
         glBufferData(GL_ARRAY_BUFFER,
-                     N_POINTS * vertex_size,
+                     N_POINTS * (sizeof (struct vertex) +
+                                 (n_colors * sizeof (struct color))),
                      NULL, /* data */
                      GL_STATIC_DRAW);
 
@@ -71,9 +67,10 @@ create_points_buffer(int n_colors)
         for (i = 0; i < N_POINTS; i++) {
                 v->x = rand() / (float) RAND_MAX * 2.0f - 1.0f;
                 v->y = rand() / (float) RAND_MAX * 2.0f - 1.0f;
-                gen_colors(v->colors, n_colors);
-                v = (struct vertex *) (((uint8_t *) v) + vertex_size);
+                v++;
         }
+
+        gen_colors((struct color *) v, n_colors * N_POINTS);
 
         glUnmapBuffer(GL_ARRAY_BUFFER);
 
@@ -99,8 +96,7 @@ create_points_array(GLuint buffer,
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2,
                               GL_FLOAT, GL_FALSE,
-                              sizeof (struct vertex) +
-                              sizeof (struct color) * (n_colors - 1),
+                              sizeof (struct vertex),
                               (void *) offsetof(struct vertex, x));
 
         for (i = 0; i < n_colors; i++) {
@@ -112,10 +108,11 @@ create_points_array(GLuint buffer,
                 glEnableVertexAttribArray(attrib_num);
                 glVertexAttribPointer(attrib_num, 3,
                                       GL_UNSIGNED_BYTE, GL_TRUE,
-                                      sizeof (struct vertex) +
-                                      sizeof (struct color) * (n_colors - 1),
-                                      (void *) offsetof(struct vertex,
-                                                        colors[i].r));
+                                      sizeof (struct color) * n_colors,
+                                      (void *) (intptr_t)
+                                      (offsetof(struct color, r) +
+                                       sizeof (struct color) * i +
+                                       sizeof (struct vertex) * N_POINTS));
         }
 
         glBindVertexArray(0);

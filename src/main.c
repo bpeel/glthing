@@ -8,144 +8,133 @@
 
 #include "shader-data.h"
 
-struct grid {
-        GLuint buffer;
-        GLuint array;
-};
+#define N_POINTS 100
+#define N_COLORS 10
 
 struct glthing {
         SDL_Window *window;
         SDL_GLContext gl_context;
 
+        GLuint buffer;
+        GLuint array[2];
         GLuint program;
-        GLuint offset_location;
-        struct grid grid;
 
-        int last_w, last_h;
+        bool backwards;
+        bool clear;
 
         bool quit;
 };
 
-struct vertex {
-        float x, y, z;
-        uint8_t r, g, b;
+struct color {
+        float r, g, b, a;
 };
 
-#define GRID_SIZE 20
-#define N_GRID_SQUARES (GRID_SIZE * GRID_SIZE / 2)
+struct vertex {
+        float x, y;
+        struct color colors[N_COLORS];
+};
 
 static void
-create_grid(struct grid *grid)
+gen_colors(struct color *colors,
+           int n_colors)
+{
+        int i;
+
+        for (i = 0; i < n_colors; i++) {
+                colors->r = rand() / (float) RAND_MAX;
+                colors->g = rand() / (float) RAND_MAX;
+                colors->b = rand() / (float) RAND_MAX;
+                colors++;
+        }
+}
+
+static GLuint
+create_points_buffer(void)
 {
         struct vertex *v;
-        uint16_t *ind;
-        float xp, yp;
-        int y, x, i;
+        GLuint buf;
+        int i;
 
-        glGenVertexArrays(1, &grid->array);
-        glBindVertexArray(grid->array);
-
-        glGenBuffers(1, &grid->buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, grid->buffer);
+        glGenBuffers(1, &buf);
+        glBindBuffer(GL_ARRAY_BUFFER, buf);
         glBufferData(GL_ARRAY_BUFFER,
-                     N_GRID_SQUARES *
-                     (4 * sizeof (struct vertex) +
-                      6 * sizeof (uint16_t)),
+                     N_POINTS * sizeof (struct vertex),
                      NULL, /* data */
                      GL_STATIC_DRAW);
 
         v = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
 
-        for (y = 0; y < GRID_SIZE; y++) {
-                yp = 2.0f * y / GRID_SIZE - 1.0f;
-
-                for (x = 0; x < GRID_SIZE / 2; x++) {
-                        if (y & 1)
-                                xp = (4.0f * x + 2.0f) / GRID_SIZE - 1.0f;
-                        else
-                                xp = 4.0f * x / GRID_SIZE - 1.0f;
-
-                        v[0].x = xp;
-                        v[0].y = yp;
-                        v[1].x = xp + 2.0 / GRID_SIZE;
-                        v[1].y = yp;
-                        v[2].x = xp;
-                        v[2].y = yp + 2.0 / GRID_SIZE;
-                        v[3].x = xp + 2.0 / GRID_SIZE;
-                        v[3].y = yp + 2.0 / GRID_SIZE;
-
-                        for (i = 0; i < 4; i++) {
-                                v[i].z = 0.5f;
-                                v[i].r = 0;
-                                v[i].g = 0;
-                                v[i].b = 255;
-                        }
-
-                        v += 4;
-                }
-        }
-
-        ind = (uint16_t *) v;
-
-        for (i = 0; i < N_GRID_SQUARES; i++) {
-                *(ind++) = i * 4;
-                *(ind++) = i * 4 + 1;
-                *(ind++) = i * 4 + 2;
-                *(ind++) = i * 4 + 2;
-                *(ind++) = i * 4 + 1;
-                *(ind++) = i * 4 + 3;
+        for (i = 0; i < N_POINTS; i++) {
+                v->x = rand() / (float) RAND_MAX * 2.0f - 1.0f;
+                v->y = rand() / (float) RAND_MAX * 2.0f - 1.0f;
+                gen_colors(v->colors, N_COLORS);
+                v++;
         }
 
         glUnmapBuffer(GL_ARRAY_BUFFER);
 
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        return buf;
+}
+
+static GLuint
+create_points_array(GLuint buffer,
+                    bool backwards)
+{
+        GLuint ary;
+        int attrib_num;
+        int i;
+
+        glBindBuffer(GL_ARRAY_BUFFER, buffer);
+
+        glGenVertexArrays(1, &ary);
+        glBindVertexArray(ary);
+
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3,
+        glVertexAttribPointer(0, 2,
                               GL_FLOAT, GL_FALSE,
                               sizeof (struct vertex),
                               (void *) offsetof(struct vertex, x));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3,
-                              GL_UNSIGNED_BYTE, GL_TRUE,
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, r));
+
+        for (i = 0; i < N_COLORS; i++) {
+                if (backwards)
+                        attrib_num = N_COLORS - i;
+                else
+                        attrib_num = i + 1;
+
+                glEnableVertexAttribArray(attrib_num);
+                glVertexAttribPointer(attrib_num, 3,
+                                      GL_UNSIGNED_BYTE, GL_TRUE,
+                                      sizeof (struct vertex),
+                                      (void *) offsetof(struct vertex,
+                                                        colors[i].r));
+        }
+
+        glBindVertexArray(0);
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, grid->buffer);
-
-        glBindVertexArray(0);
-}
-
-static void
-destroy_grid(struct grid *grid)
-{
-        glDeleteVertexArrays(1, &grid->array);
-        glDeleteBuffers(1, &grid->buffer);
+        return ary;
 }
 
 static void
 redraw(struct glthing *glthing)
 {
-        int w, h;
+        int i;
 
-        SDL_GetWindowSize(glthing->window, &w, &h);
+        if (glthing->clear)
+                glClear(GL_COLOR_BUFFER_BIT);
 
-        if (w != glthing->last_w || h != glthing->last_h) {
-                glViewport(0.0f, 0.0f, w, h);
-                glthing->last_w = w;
-                glthing->last_h = h;
+        /* Draw each point with an individual draw call and alternate
+         * the vertex array objects each time so that the driver will
+         * send the array state for every point
+         */
+        for (i = 0; i < N_POINTS; i++) {
+                glBindVertexArray(glthing->array[i & 1]);
+                glDrawArrays(GL_POINTS, i, 1);
         }
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        glUniform2f(glthing->offset_location, 0.0f, 0.0f);
-        glBindVertexArray(glthing->grid.array);
-        glDrawRangeElements(GL_TRIANGLES,
-                            0, N_GRID_SQUARES * 4 - 1,
-                            N_GRID_SQUARES * 6,
-                            GL_UNSIGNED_SHORT,
-                            (void *) (N_GRID_SQUARES * 4 *
-                                      sizeof (struct vertex)));
 
         SDL_GL_SwapWindow(glthing->window);
 }
@@ -182,10 +171,10 @@ main_loop(struct glthing *glthing)
         SDL_Event event;
 
         while (!glthing->quit) {
-                if (SDL_PollEvent(&event))
+                while (SDL_PollEvent(&event))
                         process_event(glthing, &event);
-                else
-                        redraw(glthing);
+
+                redraw(glthing);
         }
 
         return true;
@@ -197,8 +186,20 @@ main(int argc, char **argv)
         int ret = EXIT_SUCCESS;
         struct glthing glthing;
         int res;
+        int i;
 
         memset(&glthing, 0, sizeof glthing);
+
+        for (i = 1; i < argc; i++) {
+                if (!strcmp(argv[i], "clear")) {
+                        glthing.clear = true;
+                } else if (!strcmp(argv[i], "backwards")) {
+                        glthing.backwards = true;
+                } else {
+                        fprintf(stderr, "usage: glthing [clear] [backwards]\n");
+                        exit(EXIT_FAILURE);
+                }
+        }
 
         res = SDL_Init(SDL_INIT_VIDEO);
         if (res < 0) {
@@ -249,18 +250,19 @@ main(int argc, char **argv)
         if (glthing.program == 0)
                 goto out_context;
 
-        glthing.offset_location =
-                glGetUniformLocation(glthing.program, "offset");
-
-        create_grid(&glthing.grid);
+        glthing.buffer = create_points_buffer();
+        for (i = 0; i < 2; i++)
+                glthing.array[i] = create_points_array(glthing.buffer,
+                                                       glthing.backwards);
 
         glUseProgram(glthing.program);
 
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;
 
-        destroy_grid(&glthing.grid);
 
+        glDeleteBuffers(1, &glthing.buffer);
+        glDeleteVertexArrays(2, glthing.array);
         glDeleteProgram(glthing.program);
 
 out_context:

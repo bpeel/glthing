@@ -1,6 +1,6 @@
 #version 330 core
 
-#define N_COLORS 10
+#define N_COLORS (gl_MaxVertexAttribs - 1)
 
 layout(location = 0) in vec2 pos;
 

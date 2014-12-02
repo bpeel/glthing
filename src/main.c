@@ -5,11 +5,11 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdint.h>
 
 #include "shader-data.h"
 
 #define N_POINTS 100
-#define N_COLORS 10
 
 struct glthing {
         SDL_Window *window;
@@ -31,7 +31,7 @@ struct color {
 
 struct vertex {
         float x, y;
-        struct color colors[N_COLORS];
+        struct color colors[1];
 };
 
 static void
@@ -49,16 +49,20 @@ gen_colors(struct color *colors,
 }
 
 static GLuint
-create_points_buffer(void)
+create_points_buffer(int n_colors)
 {
+        size_t vertex_size;
         struct vertex *v;
         GLuint buf;
         int i;
 
+        vertex_size = (sizeof (struct vertex) +
+                       sizeof (struct color) * (n_colors - 1));
+
         glGenBuffers(1, &buf);
         glBindBuffer(GL_ARRAY_BUFFER, buf);
         glBufferData(GL_ARRAY_BUFFER,
-                     N_POINTS * sizeof (struct vertex),
+                     N_POINTS * vertex_size,
                      NULL, /* data */
                      GL_STATIC_DRAW);
 
@@ -67,8 +71,8 @@ create_points_buffer(void)
         for (i = 0; i < N_POINTS; i++) {
                 v->x = rand() / (float) RAND_MAX * 2.0f - 1.0f;
                 v->y = rand() / (float) RAND_MAX * 2.0f - 1.0f;
-                gen_colors(v->colors, N_COLORS);
-                v++;
+                gen_colors(v->colors, n_colors);
+                v = (struct vertex *) (((uint8_t *) v) + vertex_size);
         }
 
         glUnmapBuffer(GL_ARRAY_BUFFER);
@@ -80,6 +84,7 @@ create_points_buffer(void)
 
 static GLuint
 create_points_array(GLuint buffer,
+                    int n_colors,
                     bool backwards)
 {
         GLuint ary;
@@ -94,19 +99,21 @@ create_points_array(GLuint buffer,
         glEnableVertexAttribArray(0);
         glVertexAttribPointer(0, 2,
                               GL_FLOAT, GL_FALSE,
-                              sizeof (struct vertex),
+                              sizeof (struct vertex) +
+                              sizeof (struct color) * (n_colors - 1),
                               (void *) offsetof(struct vertex, x));
 
-        for (i = 0; i < N_COLORS; i++) {
+        for (i = 0; i < n_colors; i++) {
                 if (backwards)
-                        attrib_num = N_COLORS - i;
+                        attrib_num = n_colors - i;
                 else
                         attrib_num = i + 1;
 
                 glEnableVertexAttribArray(attrib_num);
                 glVertexAttribPointer(attrib_num, 3,
                                       GL_UNSIGNED_BYTE, GL_TRUE,
-                                      sizeof (struct vertex),
+                                      sizeof (struct vertex) +
+                                      sizeof (struct color) * (n_colors - 1),
                                       (void *) offsetof(struct vertex,
                                                         colors[i].r));
         }
@@ -185,6 +192,7 @@ main(int argc, char **argv)
 {
         int ret = EXIT_SUCCESS;
         struct glthing glthing;
+        GLint max_vertex_attribs;
         int res;
         int i;
 
@@ -242,6 +250,9 @@ main(int argc, char **argv)
 
         SDL_GL_MakeCurrent(glthing.window, glthing.gl_context);
 
+        glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &max_vertex_attribs);
+        printf("max_vertex_attribs = %i\n", max_vertex_attribs);
+
         glthing.program = shader_data_load_program(GL_VERTEX_SHADER,
                                                    "vertex-shader.glsl",
                                                    GL_FRAGMENT_SHADER,
@@ -250,16 +261,16 @@ main(int argc, char **argv)
         if (glthing.program == 0)
                 goto out_context;
 
-        glthing.buffer = create_points_buffer();
+        glthing.buffer = create_points_buffer(max_vertex_attribs - 1);
         for (i = 0; i < 2; i++)
                 glthing.array[i] = create_points_array(glthing.buffer,
+                                                       max_vertex_attribs - 1,
                                                        glthing.backwards);
 
         glUseProgram(glthing.program);
 
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;
-
 
         glDeleteBuffers(1, &glthing.buffer);
         glDeleteVertexArrays(2, glthing.array);

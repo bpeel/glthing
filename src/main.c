@@ -18,13 +18,11 @@ struct glthing {
         SDL_Window *window;
         SDL_GLContext gl_context;
 
-        bool use_conditional_render;
-
         GLuint program;
-        GLuint offset_location;
-        struct prim grid;
-        struct prim star;
+        GLuint tex_location;
         struct prim square;
+
+        GLuint tex;
 
         int last_w, last_h;
 
@@ -32,220 +30,90 @@ struct glthing {
 };
 
 struct vertex {
-        float x, y, z;
-        uint8_t r, g, b;
+        float x, y;
 };
 
-#define GRID_SIZE 20
-#define N_GRID_SQUARES (GRID_SIZE * GRID_SIZE / 2)
-
-#define STAR_POINTS 5
-#define N_STAR_VERTICES (STAR_POINTS * 2 + 1)
-
-#define STAR_Z 0.5f
-
 static void
-create_grid(struct prim *grid)
+create_texture(struct glthing *glthing)
 {
-        struct vertex *v;
-        uint16_t *ind;
-        float xp, yp;
-        int y, x, i;
+        const int TEX_SIZE = 256;
+        uint8_t tex_data[TEX_SIZE * TEX_SIZE * 4];
+        static const uint8_t color[] = { 70, 0x00, 0x00, 0xff };
+        uint8_t *p = tex_data;
+        GLuint pbo;
+        int x, y;
 
-        glGenVertexArrays(1, &grid->array);
-        glBindVertexArray(grid->array);
+        glGenTextures(1, &glthing->tex);
+        glBindTexture(GL_TEXTURE_2D, glthing->tex);
 
-        glGenBuffers(1, &grid->buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, grid->buffer);
-        glBufferData(GL_ARRAY_BUFFER,
-                     N_GRID_SQUARES *
-                     (4 * sizeof (struct vertex) +
-                      6 * sizeof (uint16_t)),
-                     NULL, /* data */
-                     GL_STATIC_DRAW);
-
-        v = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-
-        for (y = 0; y < GRID_SIZE; y++) {
-                yp = 2.0f * y / GRID_SIZE - 1.0f;
-
-                for (x = 0; x < GRID_SIZE / 2; x++) {
-                        if (y & 1)
-                                xp = (4.0f * x + 2.0f) / GRID_SIZE - 1.0f;
-                        else
-                                xp = 4.0f * x / GRID_SIZE - 1.0f;
-
-                        v[0].x = xp;
-                        v[0].y = yp;
-                        v[1].x = xp + 2.0 / GRID_SIZE;
-                        v[1].y = yp;
-                        v[2].x = xp;
-                        v[2].y = yp + 2.0 / GRID_SIZE;
-                        v[3].x = xp + 2.0 / GRID_SIZE;
-                        v[3].y = yp + 2.0 / GRID_SIZE;
-
-                        for (i = 0; i < 4; i++) {
-                                v[i].z = 0.0f;
-                                v[i].r = 0;
-                                v[i].g = 0;
-                                v[i].b = 255;
-                        }
-
-                        v += 4;
+        for (y = 0; y < TEX_SIZE; y++) {
+                for (x = 0; x < TEX_SIZE; x++) {
+                        memcpy(p, color, 4);
+                        p += 4;
                 }
         }
 
-        ind = (uint16_t *) v;
+        /* Initially upload the data without a PBO */
+        glTexImage2D(GL_TEXTURE_2D,
+                     0, /* level */
+                     GL_R3_G3_B2,
+                     TEX_SIZE, TEX_SIZE,
+                     0, /* border */
+                     GL_RGBA, GL_UNSIGNED_BYTE,
+                     tex_data);
 
-        for (i = 0; i < N_GRID_SQUARES; i++) {
-                *(ind++) = i * 4;
-                *(ind++) = i * 4 + 1;
-                *(ind++) = i * 4 + 2;
-                *(ind++) = i * 4 + 2;
-                *(ind++) = i * 4 + 1;
-                *(ind++) = i * 4 + 3;
-        }
+        /* Update a sub-region of the texture with the same data but
+         * this time using a PBO */
+        glGenBuffers(1, &pbo);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+        glBufferData(GL_PIXEL_UNPACK_BUFFER,
+                     sizeof tex_data,
+                     tex_data,
+                     GL_STATIC_DRAW);
+        glTexSubImage2D(GL_TEXTURE_2D,
+                        0, /* level */
+                        TEX_SIZE / 4, TEX_SIZE / 4,
+                        TEX_SIZE / 2, TEX_SIZE / 2,
+                        GL_RGBA, GL_UNSIGNED_BYTE,
+                        NULL);
+        glDeleteBuffers(1, &pbo);
 
-        glUnmapBuffer(GL_ARRAY_BUFFER);
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_data);
 
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3,
-                              GL_FLOAT, GL_FALSE,
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, x));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3,
-                              GL_UNSIGNED_BYTE, GL_TRUE,
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, r));
+        printf("%i %i %i\n",
+               color[0],
+               tex_data[0], tex_data[TEX_SIZE / 4 * 4 +
+                                     TEX_SIZE / 4 * 4 * TEX_SIZE]);
 
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, grid->buffer);
-
-        glBindVertexArray(0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 }
 
 static void
-create_star(struct prim *grid)
+create_square(struct prim *square)
 {
-        struct vertex *v;
-        uint16_t *ind;
-        float angle;
-        int i;
+        static const struct vertex vertex_data[] = {
+                { -1, -1 },
+                { 1, -1 },
+                { -1, 1 },
+                { 1, 1 }
+        };
 
-        glGenVertexArrays(1, &grid->array);
-        glBindVertexArray(grid->array);
+        glGenVertexArrays(1, &square->array);
+        glBindVertexArray(square->array);
 
-        glGenBuffers(1, &grid->buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, grid->buffer);
+        glGenBuffers(1, &square->buffer);
+        glBindBuffer(GL_ARRAY_BUFFER, square->buffer);
         glBufferData(GL_ARRAY_BUFFER,
-                     N_STAR_VERTICES * sizeof (struct vertex) +
-                     (STAR_POINTS * 2 + 2) * sizeof (uint16_t),
-                     NULL, /* data */
+                     sizeof vertex_data,
+                     vertex_data, /* data */
                      GL_STATIC_DRAW);
 
-        v = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-
-        for (i = 0; i < N_STAR_VERTICES; i++) {
-                v[i].z = STAR_Z;
-                v[i].r = 0;
-                v[i].g = 255;
-                v[i].b = 0;
-        }
-
-        /* Center vertex */
-        v->x = 0.0f;
-        v->y = 0.0f;
-        v++;
-
-        for (i = 0; i < STAR_POINTS; i++) {
-                angle = i * 2.0f * M_PI / STAR_POINTS;
-                v[0].x = sinf(angle) * 1.0f / GRID_SIZE;
-                v[0].y = cosf(angle) * 1.0f / GRID_SIZE;
-                angle = (i + 0.5f) * 2.0f * M_PI / STAR_POINTS;
-                v[1].x = sinf(angle) * 0.5f / GRID_SIZE;
-                v[1].y = cosf(angle) * 0.5f / GRID_SIZE;
-                v += 2;
-        }
-
-        ind = (uint16_t *) v;
-
-        /* Center vertex */
-        *(ind++) = 0;
-
-        for (i = 0; i < STAR_POINTS * 2; i++)
-                *(ind++) = i + 1;
-
-        /* Repeat the first vertex */
-        *(ind++) = 1;
-
-        glUnmapBuffer(GL_ARRAY_BUFFER);
-
         glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3,
+        glVertexAttribPointer(0, 2,
                               GL_FLOAT, GL_FALSE,
                               sizeof (struct vertex),
                               (void *) offsetof(struct vertex, x));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3,
-                              GL_UNSIGNED_BYTE, GL_TRUE,
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, r));
-
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, grid->buffer);
-
-        glBindVertexArray(0);
-}
-
-static void
-create_square(struct prim *grid)
-{
-        struct vertex *v;
-        int y, x;
-        int i;
-
-        glGenVertexArrays(1, &grid->array);
-        glBindVertexArray(grid->array);
-
-        glGenBuffers(1, &grid->buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, grid->buffer);
-        glBufferData(GL_ARRAY_BUFFER,
-                     4 * sizeof (struct vertex),
-                     NULL, /* data */
-                     GL_STATIC_DRAW);
-
-        v = glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-
-        for (i = 0; i < 4; i++) {
-                v[i].z = STAR_Z;
-                v[i].r = 255;
-                v[i].g = 255;
-                v[i].b = 255;
-        }
-
-        for (y = 0; y < 2; y++) {
-                for (x = 0; x < 2; x++) {
-                        v->x = (2 * x - 1.0f) / GRID_SIZE;
-                        v->y = (2 * y - 1.0f) / GRID_SIZE;
-                        v++;
-                }
-        }
-
-        glUnmapBuffer(GL_ARRAY_BUFFER);
-
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 3,
-                              GL_FLOAT, GL_FALSE,
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, x));
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(1, 3,
-                              GL_UNSIGNED_BYTE, GL_TRUE,
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, r));
 
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
@@ -253,62 +121,10 @@ create_square(struct prim *grid)
 }
 
 static void
-destroy_prim(struct prim *grid)
+destroy_prim(struct prim *prim)
 {
-        glDeleteVertexArrays(1, &grid->array);
-        glDeleteBuffers(1, &grid->buffer);
-}
-
-static void
-draw_star(struct glthing *glthing)
-{
-        GLuint q;
-
-        if (glthing->use_conditional_render) {
-                glGenQueries(1, &q);
-                glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
-                glDepthMask(GL_FALSE);
-
-                glBindVertexArray(glthing->square.array);
-                glBeginQuery(GL_ANY_SAMPLES_PASSED, q);
-                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-                glEndQuery(GL_ANY_SAMPLES_PASSED);
-
-                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-                glDepthMask(GL_TRUE);
-
-                glBeginConditionalRender(q, GL_QUERY_WAIT);
-        }
-
-        glBindVertexArray(glthing->star.array);
-
-        glDrawRangeElements(GL_TRIANGLE_FAN,
-                            0, N_STAR_VERTICES - 1,
-                            STAR_POINTS * 2 + 2,
-                            GL_UNSIGNED_SHORT,
-                            (void *) (N_STAR_VERTICES *
-                                      sizeof (struct vertex)));
-
-        if (glthing->use_conditional_render) {
-                glEndConditionalRender();
-
-                glDeleteQueries(1, &q);
-        }
-}
-
-static void
-draw_stars(struct glthing *glthing)
-{
-        int y, x;
-
-        for (y = 0; y < GRID_SIZE; y++) {
-                for (x = 0; x < GRID_SIZE; x++) {
-                        glUniform2f(glthing->offset_location,
-                                    2.0f * (x + 0.5f) / GRID_SIZE - 1.0f,
-                                    2.0f * (y + 0.5f) / GRID_SIZE - 1.0f);
-                        draw_star(glthing);
-                }
-        }
+        glDeleteVertexArrays(1, &prim->array);
+        glDeleteBuffers(1, &prim->buffer);
 }
 
 static void
@@ -324,18 +140,15 @@ redraw(struct glthing *glthing)
                 glthing->last_h = h;
         }
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT);
 
-        glUniform2f(glthing->offset_location, 0.0f, 0.0f);
-        glBindVertexArray(glthing->grid.array);
-        glDrawRangeElements(GL_TRIANGLES,
-                            0, N_GRID_SQUARES * 4 - 1,
-                            N_GRID_SQUARES * 6,
-                            GL_UNSIGNED_SHORT,
-                            (void *) (N_GRID_SQUARES * 4 *
-                                      sizeof (struct vertex)));
+        create_texture(glthing);
 
-        draw_stars(glthing);
+        glUseProgram(glthing->program);
+        glBindVertexArray(glthing->square.array);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+        glDeleteTextures(1, &glthing->tex);
 
         SDL_GL_SwapWindow(glthing->window);
 }
@@ -386,22 +199,9 @@ main(int argc, char **argv)
 {
         int ret = EXIT_SUCCESS;
         struct glthing glthing;
-        int i;
         int res;
 
         memset(&glthing, 0, sizeof glthing);
-
-        glthing.use_conditional_render = true;
-
-        for (i = 1; i < argc; i++) {
-                if (!strcmp(argv[i], "nocond")) {
-                        glthing.use_conditional_render = false;
-                } else {
-                        fprintf(stderr, "usage: glthing [nocond]\n");
-                        ret = EXIT_FAILURE;
-                        goto out;
-                }
-        }
 
         res = SDL_Init(SDL_INIT_VIDEO);
         if (res < 0) {
@@ -452,22 +252,18 @@ main(int argc, char **argv)
         if (glthing.program == 0)
                 goto out_context;
 
-        glthing.offset_location =
-                glGetUniformLocation(glthing.program, "offset");
+        glthing.tex_location =
+                glGetUniformLocation(glthing.program, "tex");
 
-        create_grid(&glthing.grid);
-        create_star(&glthing.star);
         create_square(&glthing.square);
 
         glUseProgram(glthing.program);
-        glEnable(GL_DEPTH_TEST);
+        glUniform1i(glthing.tex_location, 0);
 
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;
 
         destroy_prim(&glthing.square);
-        destroy_prim(&glthing.star);
-        destroy_prim(&glthing.grid);
 
         glDeleteProgram(glthing.program);
 

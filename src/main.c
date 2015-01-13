@@ -38,6 +38,7 @@ create_texture(struct glthing *glthing)
 {
         const int TEX_SIZE = 256;
         uint8_t tex_data[TEX_SIZE * TEX_SIZE * 4];
+        uint16_t result[TEX_SIZE * TEX_SIZE];
         static const uint8_t color[] = { 70, 0x00, 0x00, 0xff };
         uint8_t *p = tex_data;
         GLuint pbo;
@@ -56,7 +57,7 @@ create_texture(struct glthing *glthing)
         /* Initially upload the data without a PBO */
         glTexImage2D(GL_TEXTURE_2D,
                      0, /* level */
-                     GL_R3_G3_B2,
+                     GL_RGB565,
                      TEX_SIZE, TEX_SIZE,
                      0, /* border */
                      GL_RGBA, GL_UNSIGNED_BYTE,
@@ -78,12 +79,22 @@ create_texture(struct glthing *glthing)
                         NULL);
         glDeleteBuffers(1, &pbo);
 
-        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_data);
+        memset(tex_data, 0, sizeof tex_data);
 
-        printf("%i %i %i\n",
+        glGetTexImage(GL_TEXTURE_2D, 0,
+                      GL_RGB, GL_UNSIGNED_SHORT_5_6_5,
+                      result);
+
+
+        printf("Original 8-bit value = %i\n"
+               "Value without using PBO in 5 bits = %i\n"
+               "Value with a PBO in 5 bits = %i\n"
+               "%i / 255.0 * 31 = %f\n",
                color[0],
-               tex_data[0], tex_data[TEX_SIZE / 4 * 4 +
-                                     TEX_SIZE / 4 * 4 * TEX_SIZE]);
+               result[0] >> 11,
+               result[TEX_SIZE / 4 + TEX_SIZE / 4 * TEX_SIZE] >> 11,
+               color[0],
+               color[0] / 255.0f * 31.0f);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -142,13 +153,9 @@ redraw(struct glthing *glthing)
 
         glClear(GL_COLOR_BUFFER_BIT);
 
-        create_texture(glthing);
-
         glUseProgram(glthing->program);
         glBindVertexArray(glthing->square.array);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-        glDeleteTextures(1, &glthing->tex);
 
         SDL_GL_SwapWindow(glthing->window);
 }
@@ -260,8 +267,12 @@ main(int argc, char **argv)
         glUseProgram(glthing.program);
         glUniform1i(glthing.tex_location, 0);
 
+        create_texture(&glthing);
+
         if (!main_loop(&glthing))
                 ret = EXIT_FAILURE;
+
+        glDeleteTextures(1, &glthing.tex);
 
         destroy_prim(&glthing.square);
 

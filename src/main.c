@@ -6,15 +6,21 @@
 #include <stdio.h>
 
 static void
-do_test(void)
+do_test(GLenum internal_format,
+        GLenum unpack_format,
+        GLenum unpack_type,
+        GLenum pack_format,
+        GLenum pack_type,
+        int bpp)
 {
         const int TEX_WIDTH = 256;
         const int TEX_HEIGHT = 1;
         uint8_t tex_data[TEX_WIDTH * TEX_HEIGHT * 4];
-        uint16_t cpu_result[TEX_WIDTH * TEX_HEIGHT];
-        uint16_t pbo_result[TEX_WIDTH * TEX_HEIGHT];
+        uint8_t cpu_result[TEX_WIDTH * TEX_HEIGHT * bpp];
+        uint8_t pbo_result[TEX_WIDTH * TEX_HEIGHT * bpp];
         uint8_t *p = tex_data;
         GLuint pbo, tex;
+        bool shown_format = false;
         int x, y;
 
         glGenTextures(1, &tex);
@@ -25,7 +31,7 @@ do_test(void)
                         p[0] = x;
                         p[1] = x;
                         p[2] = x;
-                        p[3] = 255;
+                        p[3] = x;
                         p += 4;
                 }
         }
@@ -33,14 +39,14 @@ do_test(void)
         /* Initially upload the data without a PBO */
         glTexImage2D(GL_TEXTURE_2D,
                      0, /* level */
-                     GL_RGB565,
+                     internal_format,
                      TEX_WIDTH, TEX_HEIGHT,
                      0, /* border */
-                     GL_RGBA, GL_UNSIGNED_BYTE,
+                     unpack_format, unpack_type,
                      tex_data);
 
         glGetTexImage(GL_TEXTURE_2D, 0,
-                      GL_RGB, GL_UNSIGNED_SHORT_5_6_5,
+                      pack_format, pack_type,
                       cpu_result);
 
         glDeleteTextures(1, &tex);
@@ -56,27 +62,31 @@ do_test(void)
                      GL_STATIC_DRAW);
         glTexImage2D(GL_TEXTURE_2D,
                      0, /* level */
-                     GL_RGB565,
+                     internal_format,
                      TEX_WIDTH, TEX_HEIGHT,
                      0, /* border */
-                     GL_RGBA, GL_UNSIGNED_BYTE,
+                     unpack_format, unpack_type,
                      NULL);
         glDeleteBuffers(1, &pbo);
 
         glGetTexImage(GL_TEXTURE_2D, 0,
-                      GL_RGB, GL_UNSIGNED_SHORT_5_6_5,
+                      pack_format, pack_type,
                       pbo_result);
 
         for (x = 0; x < TEX_WIDTH; x++) {
-                if (cpu_result[x] != pbo_result[x]) {
-                        printf("%i %i,%i,%i %i,%i,%i\n",
-                               x,
-                               cpu_result[x] >> 11,
-                               (cpu_result[x] >> 5) & 63,
-                               cpu_result[x] & 31,
-                               pbo_result[x] >> 11,
-                               (pbo_result[x] >> 5) & 63,
-                               pbo_result[x] & 31);
+                if (memcmp(cpu_result + x * bpp, pbo_result + x * bpp, bpp)) {
+                        if (!shown_format) {
+                                printf("internal_format = 0x%04x\n",
+                                       internal_format);
+                                shown_format = true;
+                        }
+                        printf("0x%02x 0x", x);
+                        for (y = 0; y < bpp; y++)
+                                printf("%02x", cpu_result[x * bpp + y]);
+                        printf(" 0x");
+                        for (y = 0; y < bpp; y++)
+                                printf("%02x", pbo_result[x * bpp + y]);
+                        fputc('\n', stdout);
                 }
         }
 
@@ -132,7 +142,24 @@ main(int argc, char **argv)
 
         SDL_GL_MakeCurrent(window, gl_context);
 
-        do_test();
+        do_test(GL_RGB565, GL_RGBA, GL_UNSIGNED_BYTE,
+                GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2);
+        do_test(GL_RGBA4, GL_RGBA, GL_UNSIGNED_BYTE,
+                GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, 2);
+        do_test(GL_RGBA, GL_RGBA, GL_UNSIGNED_BYTE,
+                GL_RGBA, GL_UNSIGNED_BYTE, 4);
+        do_test(GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                GL_RED_INTEGER, GL_UNSIGNED_INT, 4);
+        do_test(GL_R16UI, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                GL_RED_INTEGER, GL_UNSIGNED_SHORT, 2);
+        do_test(GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_INT,
+                GL_RED_INTEGER, GL_UNSIGNED_BYTE, 1);
+        do_test(GL_R16, GL_RED, GL_UNSIGNED_INT,
+                GL_RED, GL_UNSIGNED_SHORT, 2);
+        do_test(GL_R8, GL_RED, GL_UNSIGNED_INT,
+                GL_RED, GL_UNSIGNED_BYTE, 1);
+        do_test(GL_RG8_SNORM, GL_RG, GL_SHORT,
+                GL_RG, GL_BYTE, 2);
 
         SDL_GL_MakeCurrent(NULL, NULL);
         SDL_GL_DeleteContext(gl_context);

@@ -23,8 +23,8 @@ do_test(void)
         for (y = 0; y < TEX_HEIGHT; y++) {
                 for (x = 0; x < TEX_WIDTH; x++) {
                         p[0] = x;
-                        p[1] = 0;
-                        p[2] = 0;
+                        p[1] = x;
+                        p[2] = x;
                         p[3] = 255;
                         p += 4;
                 }
@@ -69,10 +69,14 @@ do_test(void)
 
         for (x = 0; x < TEX_WIDTH; x++) {
                 if (cpu_result[x] != pbo_result[x]) {
-                        printf("%i %i %i\n",
+                        printf("%i %i,%i,%i %i,%i,%i\n",
                                x,
                                cpu_result[x] >> 11,
-                               pbo_result[x] >> 11);
+                               (cpu_result[x] >> 5) & 63,
+                               cpu_result[x] & 31,
+                               pbo_result[x] >> 11,
+                               (pbo_result[x] >> 5) & 63,
+                               pbo_result[x] & 31);
                 }
         }
 

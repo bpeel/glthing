@@ -2,54 +2,30 @@
 
 #include <epoxy/gl.h>
 #include <SDL.h>
-#include <stdlib.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <math.h>
-
-#include "shader-data.h"
-
-struct prim {
-        GLuint buffer;
-        GLuint array;
-};
-
-struct glthing {
-        SDL_Window *window;
-        SDL_GLContext gl_context;
-
-        GLuint program;
-        GLuint tex_location;
-        struct prim square;
-
-        GLuint tex;
-
-        int last_w, last_h;
-
-        bool quit;
-};
-
-struct vertex {
-        float x, y;
-};
 
 static void
-create_texture(struct glthing *glthing)
+do_test(void)
 {
-        const int TEX_SIZE = 256;
-        uint8_t tex_data[TEX_SIZE * TEX_SIZE * 4];
-        uint16_t result[TEX_SIZE * TEX_SIZE];
-        static const uint8_t color[] = { 70, 0x00, 0x00, 0xff };
+        const int TEX_WIDTH = 256;
+        const int TEX_HEIGHT = 1;
+        uint8_t tex_data[TEX_WIDTH * TEX_HEIGHT * 4];
+        uint16_t cpu_result[TEX_WIDTH * TEX_HEIGHT];
+        uint16_t pbo_result[TEX_WIDTH * TEX_HEIGHT];
         uint8_t *p = tex_data;
-        GLuint pbo;
+        GLuint pbo, tex;
         int x, y;
 
-        glGenTextures(1, &glthing->tex);
-        glBindTexture(GL_TEXTURE_2D, glthing->tex);
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
 
-        for (y = 0; y < TEX_SIZE; y++) {
-                for (x = 0; x < TEX_SIZE; x++) {
-                        memcpy(p, color, 4);
+        for (y = 0; y < TEX_HEIGHT; y++) {
+                for (x = 0; x < TEX_WIDTH; x++) {
+                        p[0] = x;
+                        p[1] = 0;
+                        p[2] = 0;
+                        p[3] = 255;
                         p += 4;
                 }
         }
@@ -58,157 +34,58 @@ create_texture(struct glthing *glthing)
         glTexImage2D(GL_TEXTURE_2D,
                      0, /* level */
                      GL_RGB565,
-                     TEX_SIZE, TEX_SIZE,
+                     TEX_WIDTH, TEX_HEIGHT,
                      0, /* border */
                      GL_RGBA, GL_UNSIGNED_BYTE,
                      tex_data);
 
-        /* Update a sub-region of the texture with the same data but
-         * this time using a PBO */
+        glGetTexImage(GL_TEXTURE_2D, 0,
+                      GL_RGB, GL_UNSIGNED_SHORT_5_6_5,
+                      cpu_result);
+
+        glDeleteTextures(1, &tex);
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+
+        /* Upload the same texture but this time with a pbo */
         glGenBuffers(1, &pbo);
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
         glBufferData(GL_PIXEL_UNPACK_BUFFER,
                      sizeof tex_data,
                      tex_data,
                      GL_STATIC_DRAW);
-        glTexSubImage2D(GL_TEXTURE_2D,
-                        0, /* level */
-                        TEX_SIZE / 4, TEX_SIZE / 4,
-                        TEX_SIZE / 2, TEX_SIZE / 2,
-                        GL_RGBA, GL_UNSIGNED_BYTE,
-                        NULL);
+        glTexImage2D(GL_TEXTURE_2D,
+                     0, /* level */
+                     GL_RGB565,
+                     TEX_WIDTH, TEX_HEIGHT,
+                     0, /* border */
+                     GL_RGBA, GL_UNSIGNED_BYTE,
+                     NULL);
         glDeleteBuffers(1, &pbo);
-
-        memset(tex_data, 0, sizeof tex_data);
 
         glGetTexImage(GL_TEXTURE_2D, 0,
                       GL_RGB, GL_UNSIGNED_SHORT_5_6_5,
-                      result);
+                      pbo_result);
 
-
-        printf("Original 8-bit value = %i\n"
-               "Value without using PBO in 5 bits = %i\n"
-               "Value with a PBO in 5 bits = %i\n"
-               "%i / 255.0 * 31 = %f\n",
-               color[0],
-               result[0] >> 11,
-               result[TEX_SIZE / 4 + TEX_SIZE / 4 * TEX_SIZE] >> 11,
-               color[0],
-               color[0] / 255.0f * 31.0f);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-}
-
-static void
-create_square(struct prim *square)
-{
-        static const struct vertex vertex_data[] = {
-                { -1, -1 },
-                { 1, -1 },
-                { -1, 1 },
-                { 1, 1 }
-        };
-
-        glGenVertexArrays(1, &square->array);
-        glBindVertexArray(square->array);
-
-        glGenBuffers(1, &square->buffer);
-        glBindBuffer(GL_ARRAY_BUFFER, square->buffer);
-        glBufferData(GL_ARRAY_BUFFER,
-                     sizeof vertex_data,
-                     vertex_data, /* data */
-                     GL_STATIC_DRAW);
-
-        glEnableVertexAttribArray(0);
-        glVertexAttribPointer(0, 2,
-                              GL_FLOAT, GL_FALSE,
-                              sizeof (struct vertex),
-                              (void *) offsetof(struct vertex, x));
-
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        glBindVertexArray(0);
-}
-
-static void
-destroy_prim(struct prim *prim)
-{
-        glDeleteVertexArrays(1, &prim->array);
-        glDeleteBuffers(1, &prim->buffer);
-}
-
-static void
-redraw(struct glthing *glthing)
-{
-        int w, h;
-
-        SDL_GetWindowSize(glthing->window, &w, &h);
-
-        if (w != glthing->last_w || h != glthing->last_h) {
-                glViewport(0.0f, 0.0f, w, h);
-                glthing->last_w = w;
-                glthing->last_h = h;
+        for (x = 0; x < TEX_WIDTH; x++) {
+                if (cpu_result[x] != pbo_result[x]) {
+                        printf("%i %i %i\n",
+                               x,
+                               cpu_result[x] >> 11,
+                               pbo_result[x] >> 11);
+                }
         }
 
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        glUseProgram(glthing->program);
-        glBindVertexArray(glthing->square.array);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-
-        SDL_GL_SwapWindow(glthing->window);
-}
-
-static void
-process_window_event(struct glthing *glthing,
-                     const SDL_WindowEvent *event)
-{
-        switch (event->event) {
-        case SDL_WINDOWEVENT_CLOSE:
-                glthing->quit = true;
-                break;
-        }
-}
-
-static void
-process_event(struct glthing *glthing,
-              const SDL_Event *event)
-{
-        switch (event->type) {
-        case SDL_WINDOWEVENT:
-                process_window_event(glthing, &event->window);
-                break;
-
-        case SDL_QUIT:
-                glthing->quit = true;
-                break;
-        }
-}
-
-static bool
-main_loop(struct glthing *glthing)
-{
-        SDL_Event event;
-
-        while (!glthing->quit) {
-                if (SDL_PollEvent(&event))
-                        process_event(glthing, &event);
-                else
-                        redraw(glthing);
-        }
-
-        return true;
+        glDeleteTextures(1, &tex);
 }
 
 int
 main(int argc, char **argv)
 {
         int ret = EXIT_SUCCESS;
-        struct glthing glthing;
+        SDL_Window *window;
+        SDL_GLContext gl_context;
         int res;
-
-        memset(&glthing, 0, sizeof glthing);
 
         res = SDL_Init(SDL_INIT_VIDEO);
         if (res < 0) {
@@ -226,13 +103,13 @@ main(int argc, char **argv)
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
                             SDL_GL_CONTEXT_PROFILE_CORE);
 
-        glthing.window = SDL_CreateWindow("glthing",
-                                          SDL_WINDOWPOS_UNDEFINED,
-                                          SDL_WINDOWPOS_UNDEFINED,
-                                          640, 480,
-                                          SDL_WINDOW_OPENGL);
+        window = SDL_CreateWindow("glthing",
+                                  SDL_WINDOWPOS_UNDEFINED,
+                                  SDL_WINDOWPOS_UNDEFINED,
+                                  640, 480,
+                                  SDL_WINDOW_OPENGL);
 
-        if (glthing.window == NULL) {
+        if (window == NULL) {
                 fprintf(stderr,
                         "Failed to create SDL window: %s\n",
                         SDL_GetError());
@@ -240,8 +117,8 @@ main(int argc, char **argv)
                 goto out_sdl;
         }
 
-        glthing.gl_context = SDL_GL_CreateContext(glthing.window);
-        if (glthing.gl_context == NULL) {
+        gl_context = SDL_GL_CreateContext(window);
+        if (gl_context == NULL) {
                 fprintf(stderr,
                         "Failed to create GL context window: %s\n",
                         SDL_GetError());
@@ -249,40 +126,14 @@ main(int argc, char **argv)
                 goto out_window;
         }
 
-        SDL_GL_MakeCurrent(glthing.window, glthing.gl_context);
+        SDL_GL_MakeCurrent(window, gl_context);
 
-        glthing.program = shader_data_load_program(GL_VERTEX_SHADER,
-                                                   "vertex-shader.glsl",
-                                                   GL_FRAGMENT_SHADER,
-                                                   "fragment-shader.glsl",
-                                                   NULL);
-        if (glthing.program == 0)
-                goto out_context;
+        do_test();
 
-        glthing.tex_location =
-                glGetUniformLocation(glthing.program, "tex");
-
-        create_square(&glthing.square);
-
-        glUseProgram(glthing.program);
-        glUniform1i(glthing.tex_location, 0);
-
-        create_texture(&glthing);
-
-        if (!main_loop(&glthing))
-                ret = EXIT_FAILURE;
-
-        glDeleteTextures(1, &glthing.tex);
-
-        destroy_prim(&glthing.square);
-
-        glDeleteProgram(glthing.program);
-
-out_context:
         SDL_GL_MakeCurrent(NULL, NULL);
-        SDL_GL_DeleteContext(glthing.gl_context);
+        SDL_GL_DeleteContext(gl_context);
 out_window:
-        SDL_DestroyWindow(glthing.window);
+        SDL_DestroyWindow(window);
 out_sdl:
         SDL_Quit();
 out:

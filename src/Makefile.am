@@ -11,7 +11,6 @@ AM_CPPFLAGS = \
 
 glthing_SOURCES = \
 	main.c \
-	shader-data.c \
 	$(NULL)
 
 glthing_LDADD = \
@@ -19,9 +18,4 @@ glthing_LDADD = \
 	$(SDL2_LIBS) \
 	$(GL_LIBS) \
 	$(GLTHING_EXTRA_LIBS) \
-	$(NULL)
-
-EXTRA_DIST = \
-	fragment-shader.glsl \
-	vertex-shader.glsl \
 	$(NULL)

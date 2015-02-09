@@ -4,92 +4,34 @@
 #include <SDL.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <time.h>
 
-static void
-do_test(GLenum internal_format,
-        GLenum unpack_format,
-        GLenum unpack_type,
-        GLenum pack_format,
-        GLenum pack_type,
-        int bpp)
+static GLuint
+make_texture(void)
 {
-        const int TEX_WIDTH = 256;
-        const int TEX_HEIGHT = 256;
-        uint16_t tex_data[TEX_WIDTH * TEX_HEIGHT * 2];
-        uint16_t *p = tex_data;
-        uint8_t cpu_result[TEX_WIDTH * TEX_HEIGHT * bpp];
-        uint8_t pbo_result[TEX_WIDTH * TEX_HEIGHT * bpp];
-        GLuint pbo, tex;
-        int x, y;
+        const int TEX_WIDTH = 4096;
+        uint8_t tex_data[TEX_WIDTH * 4];
+        GLuint tex;
+        int x;
 
         glGenTextures(1, &tex);
-        glBindTexture(GL_TEXTURE_2D, tex);
+        glBindTexture(GL_TEXTURE_1D, tex);
 
-        for (y = 0; y < TEX_HEIGHT; y++) {
-                for (x = 0; x < TEX_WIDTH; x++) {
-                        p[1] = p[0] = x + y * TEX_WIDTH;
-                        p += 2;
-                }
+        for (x = 0; x < TEX_WIDTH; x++) {
+                tex_data[x] = rand();
         }
 
-        /* Initially upload the data without a PBO */
-        glTexImage2D(GL_TEXTURE_2D,
+        glTexImage1D(GL_TEXTURE_1D,
                      0, /* level */
-                     internal_format,
-                     TEX_WIDTH, TEX_HEIGHT,
+                     GL_RGBA,
+                     TEX_WIDTH,
                      0, /* border */
-                     unpack_format, unpack_type,
+                     GL_RGBA, GL_UNSIGNED_BYTE,
                      tex_data);
 
-        glGetTexImage(GL_TEXTURE_2D, 0,
-                      pack_format, pack_type,
-                      cpu_result);
+        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
-        glDeleteTextures(1, &tex);
-        glGenTextures(1, &tex);
-        glBindTexture(GL_TEXTURE_2D, tex);
-
-        /* Upload the same texture but this time with a pbo */
-        glGenBuffers(1, &pbo);
-        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-        glBufferData(GL_PIXEL_UNPACK_BUFFER,
-                     sizeof tex_data,
-                     tex_data,
-                     GL_STATIC_DRAW);
-        glTexImage2D(GL_TEXTURE_2D,
-                     0, /* level */
-                     internal_format,
-                     TEX_WIDTH, TEX_HEIGHT,
-                     0, /* border */
-                     unpack_format, unpack_type,
-                     NULL);
-        glDeleteBuffers(1, &pbo);
-
-        glGetTexImage(GL_TEXTURE_2D, 0,
-                      pack_format, pack_type,
-                      pbo_result);
-
-        printf("16-bit input value,8-bit value without pbo,with pbo,"
-               "expected value,winner\n");
-
-        for (x = 0; x < TEX_WIDTH * TEX_HEIGHT; x++) {
-                int src_value = (int16_t) x;
-                int cpu_value = (int8_t) cpu_result[x * bpp];
-                int pbo_value = (int8_t) pbo_result[x * bpp];
-                float expected_value = src_value * 127 / 32767.0f;
-                int int_expected_value = round(expected_value);
-
-                if (cpu_value != pbo_value ||
-                    int_expected_value != cpu_value) {
-                        printf("%i,%i,%i,%f,%s\n",
-                               src_value, cpu_value, pbo_value, expected_value,
-                               int_expected_value == cpu_value ? "cpu" :
-                               int_expected_value == pbo_value ? "pbo" :
-                               "none");
-                }
-        }
-
-        glDeleteTextures(1, &tex);
+        return tex;
 }
 
 int
@@ -98,7 +40,17 @@ main(int argc, char **argv)
         int ret = EXIT_SUCCESS;
         SDL_Window *window;
         SDL_GLContext gl_context;
+        SDL_Event event;
+        static const GLfloat positions[] = {
+                -1.0f, -1.0f,
+                1.0f, -1.0f,
+                -1.0f, 1.0f,
+                1.0f, 1.0f
+        };
+        GLfloat tex_coords[4];
+        GLuint tex;
         int res;
+        int frame_num = 0;
 
         res = SDL_Init(SDL_INIT_VIDEO);
         if (res < 0) {
@@ -111,15 +63,11 @@ main(int argc, char **argv)
         SDL_GL_SetAttribute(SDL_GL_GREEN_SIZE, 8);
         SDL_GL_SetAttribute(SDL_GL_BLUE_SIZE, 8);
         SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK,
-                            SDL_GL_CONTEXT_PROFILE_CORE);
 
         window = SDL_CreateWindow("glthing",
                                   SDL_WINDOWPOS_UNDEFINED,
                                   SDL_WINDOWPOS_UNDEFINED,
-                                  640, 480,
+                                  1024, 768,
                                   SDL_WINDOW_OPENGL);
 
         if (window == NULL) {
@@ -141,8 +89,33 @@ main(int argc, char **argv)
 
         SDL_GL_MakeCurrent(window, gl_context);
 
-        do_test(GL_RG8_SNORM, GL_RG, GL_SHORT,
-                GL_RG, GL_BYTE, 2);
+        tex = make_texture();
+
+        glEnable(GL_TEXTURE_1D);
+
+        glVertexPointer(2, GL_FLOAT, sizeof(GLfloat) * 2, positions);
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glTexCoordPointer(1, GL_FLOAT, sizeof(GLfloat), tex_coords);
+        glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
+        while (true) {
+                while (SDL_PollEvent(&event)) {
+                        if (event.type == SDL_QUIT)
+                                goto done;
+                }
+
+                tex_coords[0] = tex_coords[2] = frame_num & 1;
+                tex_coords[1] = tex_coords[3] = (frame_num ^ 1) & 1;
+
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                SDL_GL_SwapWindow(window);
+
+                frame_num++;
+        };
+
+done:
+
+        glDeleteTextures(1, &tex);
 
         SDL_GL_MakeCurrent(NULL, NULL);
         SDL_GL_DeleteContext(gl_context);
